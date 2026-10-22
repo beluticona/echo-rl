@@ -85,10 +85,16 @@ class TerminalAgentTaskDataset:
             self.dataframe = self.dataframe.select(range(min(self.max_rows, len(self.dataframe))))
         logger.info(f"Loaded terminal-agent dataset with {len(self.dataframe)} rows")
 
-        required = {self.prompt_key, self.path_key, self.task_binary_key}
-        missing = required - set(self.dataframe.column_names)
-        if missing:
-            raise ValueError(f"Terminal-agent dataset is missing required columns: {sorted(missing)}")
+        columns = set(self.dataframe.column_names)
+        if self.prompt_key not in columns:
+            raise ValueError(f"Terminal-agent dataset is missing required column: {self.prompt_key!r}")
+        has_harbor_task = self.path_key in columns and self.task_binary_key in columns
+        has_endless_task = "extra_info" in columns
+        if not has_harbor_task and not has_endless_task:
+            raise ValueError(
+                "Terminal-agent dataset must contain either Harbor columns "
+                f"{self.path_key!r}/{self.task_binary_key!r} or Endless Terminals 'extra_info.task_dir'."
+            )
 
         def _tokenize(row: dict[str, Any]) -> dict[str, Any]:
             row["prompt_token_ids"] = self.tokenizer.apply_chat_template(
@@ -119,9 +125,13 @@ class TerminalAgentTaskDataset:
 
     def __getitem__(self, index: int) -> dict:
         row = self.dataframe[index]
+        extra_info = row.get("extra_info") or {}
+        task_dir = extra_info.get("task_dir") if isinstance(extra_info, dict) else None
+        path = row.get(self.path_key) or task_dir or str(index)
         env_extras = {
-            "path": row[self.path_key],
-            "task_binary": row[self.task_binary_key],
+            "path": path,
+            "task_binary": row.get(self.task_binary_key),
+            "task_dir": task_dir,
             "prompt_token_ids": row["prompt_token_ids"],
             "world_model_only": bool(row.get("_world_model_only", False)),
             "data_source": row.get("_data_source"),

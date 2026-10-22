@@ -52,6 +52,8 @@ def _load_config(argv: list[str]) -> "EchoTerminalAgentSkyRLConfig":
 
 @dataclass
 class TerminalAgentGeneratorConfig(GeneratorConfig):
+    environment_backend: Literal["harbor", "endless_apptainer"] = "harbor"
+    endless_source_root: Optional[str] = None
     max_turns: int = 16
     max_context_tokens: int = 25000
     max_tokens_per_generation: int = 2048

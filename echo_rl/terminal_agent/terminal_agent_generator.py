@@ -103,15 +103,22 @@ class TerminalAgentGenerator(GeneratorInterface):
         if not (len(prompts) == len(env_extras) == len(trajectory_ids)):
             raise ValueError("prompts, env_extras, and trajectory_ids must have the same length.")
 
-        from .harbor_environment import HarborEnvironmentProvider
+        if self.generator_cfg.environment_backend == "endless_apptainer":
+            if not self.generator_cfg.endless_source_root:
+                raise ValueError("generator.endless_source_root is required for endless_apptainer.")
+            from .endless_environment import EndlessApptainerEnvironmentProvider
 
-        provider = HarborEnvironmentProvider(
-            docker_memory_mb=self.generator_cfg.docker_memory_mb,
-            docker_cpus=self.generator_cfg.docker_cpus,
-            base_temp_dir=Path(self.generator_cfg.base_temp_dir) if self.generator_cfg.base_temp_dir else None,
-            max_concurrent_builds=self.generator_cfg.max_concurrent_builds,
-            max_build_retries=self.generator_cfg.max_build_retries,
-        )
+            provider = EndlessApptainerEnvironmentProvider(Path(self.generator_cfg.endless_source_root))
+        else:
+            from .harbor_environment import HarborEnvironmentProvider
+
+            provider = HarborEnvironmentProvider(
+                docker_memory_mb=self.generator_cfg.docker_memory_mb,
+                docker_cpus=self.generator_cfg.docker_cpus,
+                base_temp_dir=Path(self.generator_cfg.base_temp_dir) if self.generator_cfg.base_temp_dir else None,
+                max_concurrent_builds=self.generator_cfg.max_concurrent_builds,
+                max_build_retries=self.generator_cfg.max_build_retries,
+            )
         unique_envs, prompt_idx_by_instance = self._prepare_unique_envs(env_extras, trajectory_ids)
         for extra, trajectory_id in zip(env_extras, trajectory_ids):
             extra["_prompt_idx"] = prompt_idx_by_instance[trajectory_id.instance_id]

@@ -1,0 +1,103 @@
+# Minimal end-to-end ECHO training smoke test for Hopper.
+# This proves one optimizer update; it is not an experiment configuration.
+
+data:
+  train_data:
+    - name: endless_smoke
+      path: /scratch/mticonao/cs795-course/endless-data/echo_smoke.parquet
+  val_data: []
+
+tokenizer_path: Qwen/Qwen3-0.6B
+chat_template_path: echo_rl/terminal_agent/chat_templates/qwen3_xml_tool_calling.jinja
+
+trainer:
+  strategy: fsdp2
+  placement:
+    colocate_all: true
+    colocate_policy_ref: true
+    policy_num_nodes: 1
+    policy_num_gpus_per_node: 1
+    ref_num_nodes: 1
+    ref_num_gpus_per_node: 1
+  policy:
+    model:
+      path: Qwen/Qwen3-0.6B
+    optimizer_config:
+      lr: 1.0e-6
+      adam_betas: [0.9, 0.999]
+      weight_decay: 0.01
+      max_grad_norm: 0.2
+      scheduler: constant
+  algorithm:
+    max_seq_len: 4096
+    use_kl_loss: false
+    use_kl_in_reward: false
+    kl_loss_coef: 0.0
+    eps_clip_low: 0.2
+    eps_clip_high: 0.2
+    advantage_batch_normalize: false
+    loss_reduction: sequence_mean
+    world_model_coeff: 0.05
+    world_loss_normalization: full_observation_tokens
+  epochs: 1
+  update_epochs_per_batch: 1
+  max_prompt_length: 1024
+  train_batch_size: 1
+  policy_mini_batch_size: 1
+  micro_train_batch_size_per_gpu: 1
+  micro_forward_batch_size_per_gpu: 1
+  eval_batch_size: 1
+  eval_before_train: false
+  eval_interval: -1
+  ckpt_interval: -1
+  hf_save_interval: -1
+  ckpt_path: ${oc.env:OUTPUT_DIR}/ckpts
+  export_path: ${oc.env:OUTPUT_DIR}/exports
+  log_path: ${oc.env:OUTPUT_DIR}/skyrl_logs
+  logger: console
+  project_name: echo-smoke
+  run_name: qwen3-0.6b-endless-smoke
+  log_example_interval: 1
+
+generator:
+  environment_backend: endless_apptainer
+  endless_source_root: /scratch/mticonao/cs795-course/endless-terminals
+  n_samples_per_prompt: 1
+  eval_n_samples_per_prompt: 1
+  step_wise_trajectories: false
+  parser_name: xml
+  command_selection: first
+  max_turns: 2
+  max_context_tokens: 3072
+  max_tokens_per_generation: 512
+  max_terminal_output_chars: 4000
+  terminal_output_truncation: start
+  add_format_warn: true
+  world_loss_target: env_only
+  thinking_handling: keep_all
+  verifier_timeout: 60.0
+  max_total_tokens: 4096
+  agent_max_concurrency: 1
+  agent_timeout: 300.0
+  dataset_num_workers: 1
+  dataset_max_rows: 1
+  sampling_params:
+    max_generate_length: 512
+    temperature: 0.8
+    logprobs: 0
+  eval_sampling_params:
+    max_generate_length: 512
+    temperature: 0.6
+    logprobs: 0
+  inference_engine:
+    backend: vllm
+    run_engines_locally: true
+    num_engines: 1
+    weight_sync_backend: nccl
+    tensor_parallel_size: 1
+    async_engine: true
+    enforce_eager: true
+    enable_prefix_caching: false
+    enable_chunked_prefill: true
+    gpu_memory_utilization: 0.35
+    max_num_batched_tokens: 4096
