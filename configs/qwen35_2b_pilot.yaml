@@ -57,6 +57,10 @@ trainer:
   # Qwen 3.5 loads as a vision-language model, where SkyRL forbids sequence packing
   # (smoke 2947369); with micro-batches of 1 there is nothing to pack anyway.
   use_sample_packing: false
+  # flash-attn 2.8.3 crashes (illegal memory access) on Qwen 3.5's unpadded rows, which
+  # every batch has (its longest sequence); SDPA passes forward and backward
+  # (echo-fwd-check-2948510).
+  flash_attn: false
   eval_batch_size: 32
   eval_before_train: true
   eval_interval: 10
