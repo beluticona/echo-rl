@@ -54,6 +54,9 @@ trainer:
   policy_mini_batch_size: 8
   micro_train_batch_size_per_gpu: 1
   micro_forward_batch_size_per_gpu: 1
+  # Qwen 3.5 loads as a vision-language model, where SkyRL forbids sequence packing
+  # (smoke 2947369); with micro-batches of 1 there is nothing to pack anyway.
+  use_sample_packing: false
   eval_batch_size: 32
   eval_before_train: true
   eval_interval: 10
