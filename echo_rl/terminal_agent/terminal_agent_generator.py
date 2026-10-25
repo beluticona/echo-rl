@@ -103,7 +103,13 @@ class TerminalAgentGenerator(GeneratorInterface):
         if not (len(prompts) == len(env_extras) == len(trajectory_ids)):
             raise ValueError("prompts, env_extras, and trajectory_ids must have the same length.")
 
-        if self.generator_cfg.environment_backend == "endless_apptainer":
+        if self.generator_cfg.environment_backend == "tmax_remote":
+            if not self.generator_cfg.tmax_sandbox_url:
+                raise ValueError("generator.tmax_sandbox_url is required for tmax_remote.")
+            from .tmax_environment import TMaxRemoteEnvironmentProvider
+
+            provider = TMaxRemoteEnvironmentProvider(self.generator_cfg.tmax_sandbox_url)
+        elif self.generator_cfg.environment_backend == "endless_apptainer":
             if not self.generator_cfg.endless_source_root:
                 raise ValueError("generator.endless_source_root is required for endless_apptainer.")
             from .endless_environment import EndlessApptainerEnvironmentProvider

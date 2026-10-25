@@ -1,4 +1,5 @@
-# Phase 1 pilot (cs795): matched GRPO vs ECHO on Qwen3.5-2B, Endless Terminals.
+# Phase 1 pilot (cs795): matched GRPO vs ECHO on Qwen3.5-2B, TMax-15K tasks 500-1500
+# (the tasks tmax-2b was RL-trained on; cs795's evaluation rollouts use tasks 0-500).
 # One file for both arms; the only difference is set on the command line:
 #   trainer.algorithm.world_model_coeff=0.0   (GRPO)   or 0.05 (ECHO)
 # Recipe from ECHO's appendix B (lr 1e-6 constant, clip 0.2, eps 0.2/0.28, no KL,
@@ -9,11 +10,11 @@
 
 data:
   train_data:
-    - name: endless_pilot_train
-      path: ${oc.env:PROJECT_ROOT}/endless-data/pilot/train.parquet
+    - name: tmax_pilot_train
+      path: ${oc.env:PROJECT_ROOT}/tmax-data/pilot/train.parquet
   val_data:
-    - name: endless_pilot_val
-      path: ${oc.env:PROJECT_ROOT}/endless-data/pilot/val.parquet
+    - name: tmax_pilot_val
+      path: ${oc.env:PROJECT_ROOT}/tmax-data/pilot/val.parquet
 
 tokenizer_path: ${oc.env:PROJECT_ROOT}/models/hamishivi--Qwen3.5-2B/main
 
@@ -69,8 +70,10 @@ trainer:
   log_example_interval: 10
 
 generator:
-  environment_backend: endless_apptainer
-  endless_source_root: ${oc.env:PROJECT_ROOT}/endless-terminals
+  # Task containers run on the host behind cs795's analysis/phase0/sandbox_server.py,
+  # started by slurm/echo_train.sbatch; no container is started inside another.
+  environment_backend: tmax_remote
+  tmax_sandbox_url: ${oc.env:TMAX_SANDBOX_URL}
   n_samples_per_prompt: 8
   eval_n_samples_per_prompt: 1
   step_wise_trajectories: false
@@ -86,7 +89,7 @@ generator:
   thinking_handling: keep_all
   verifier_timeout: 120.0
   max_total_tokens: 18432
-  agent_max_concurrency: 32
+  agent_max_concurrency: 16
   agent_timeout: 600.0
   dataset_num_workers: 4
   dataset_max_rows: null
