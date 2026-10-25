@@ -128,7 +128,10 @@ class TerminalAgentTaskDataset:
         extra_info = row.get("extra_info") or {}
         task_dir = extra_info.get("task_dir") if isinstance(extra_info, dict) else None
         path = row.get(self.path_key) or task_dir or str(index)
+        # Every extra_info field reaches the environment (the tmax_remote backend
+        # needs "image" as well as "task_dir"); the fields below take precedence.
         env_extras = {
+            **(extra_info if isinstance(extra_info, dict) else {}),
             "path": path,
             "task_binary": row.get(self.task_binary_key),
             "task_dir": task_dir,
