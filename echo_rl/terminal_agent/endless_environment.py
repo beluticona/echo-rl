@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,20 @@ class ExecResult:
     return_code: int
 
 
+# Hopper's apptainer module exports APPTAINER_BIND="/home, /scratch, /projects,
+# /groups", which Apptainer applies to every container whatever its flags. It is
+# the "/groups doesn't exist in container" failure when building a task image,
+# and it would mount the cluster's /home over the task's /home/user. Endless
+# Terminals starts its containers with the inherited environment, so remove
+# these before it does (the same fix as analysis/phase0/sandbox.py in cs795).
+_BIND_ENV = ("APPTAINER_BIND", "APPTAINER_BINDPATH", "SINGULARITY_BIND", "SINGULARITY_BINDPATH")
+
+
+def _drop_cluster_binds() -> None:
+    for key in _BIND_ENV:
+        os.environ.pop(key, None)
+
+
 class EndlessApptainerEnvironment:
     def __init__(self, task_dir: Path, source_root: Path) -> None:
         self.task_dir = task_dir.expanduser().resolve()
@@ -23,6 +38,7 @@ class EndlessApptainerEnvironment:
         self._environment = None
 
     async def setup(self) -> None:
+        _drop_cluster_binds()
         if str(self.source_root) not in sys.path:
             sys.path.insert(0, str(self.source_root))
         from generator.env import InteractiveContainerEnvironment
