@@ -1,0 +1,131 @@
+# Easy-task pilot (2026-10-26), after the first pilot collapsed into length: the
+# qwen35_pilot recipe with the harness fixed. Changes from qwen35_2b_pilot.yaml:
+#   data tmax-data/easy (short + moderate TMax tasks, prompt prefix qwen35_single:
+#   one tool call per response); stop at </tool_call>; max_turns 16 -> 40;
+#   context 16k -> 22k (total 24k); terminal output 16k -> 8k chars; agent timeout
+#   600 -> 1800 s. Loss variants go in as overrides from echo_train.sbatch (EXTRA).
+#
+# Phase 1 pilot (cs795): matched GRPO vs ECHO on Qwen3.5-2B, TMax-15K tasks 500-1500
+# (the tasks tmax-2b was RL-trained on; cs795's evaluation rollouts use tasks 0-500).
+# One file for both arms; the only difference is set on the command line:
+#   trainer.algorithm.world_model_coeff=0.0   (GRPO)   or 0.05 (ECHO)
+# Recipe from ECHO's appendix B (lr 1e-6 constant, clip 0.2, eps 0.2/0.28, no KL,
+# temperature 0.8, 16k context, 2048 tokens per turn), scaled down to 8 prompts x 8
+# rollouts = 64 episodes per step on one GPU. Saves a Hugging Face checkpoint every
+# 10 steps for the cs795 analyses, and resumes from the latest one on restart.
+# Paths come from PROJECT_ROOT and OUTPUT_DIR in the environment.
+
+data:
+  train_data:
+    - name: tmax_pilot_train
+      path: ${oc.env:PROJECT_ROOT}/tmax-data/easy/train.parquet
+  val_data:
+    - name: tmax_pilot_val
+      path: ${oc.env:PROJECT_ROOT}/tmax-data/easy/val.parquet
+
+tokenizer_path: ${oc.env:PROJECT_ROOT}/models/hamishivi--Qwen3.5-2B/main
+
+trainer:
+  strategy: fsdp2
+  placement:
+    colocate_all: true
+    colocate_policy_ref: true
+    policy_num_nodes: 1
+    policy_num_gpus_per_node: 1
+    ref_num_nodes: 1
+    ref_num_gpus_per_node: 1
+  policy:
+    model:
+      path: ${oc.env:PROJECT_ROOT}/models/hamishivi--Qwen3.5-2B/main
+    optimizer_config:
+      lr: 1.0e-6
+      adam_betas: [0.9, 0.95]
+      weight_decay: 0.01
+      max_grad_norm: 0.2
+      scheduler: constant
+  algorithm:
+    max_seq_len: 24576
+    use_kl_loss: false
+    use_kl_in_reward: false
+    kl_loss_coef: 0.0
+    eps_clip_low: 0.2
+    eps_clip_high: 0.28
+    advantage_batch_normalize: false
+    loss_reduction: sequence_mean
+    world_model_coeff: 0.05
+    world_loss_normalization: full_observation_tokens
+  epochs: 3
+  update_epochs_per_batch: 1
+  max_prompt_length: 1536
+  train_batch_size: 8
+  policy_mini_batch_size: 8
+  micro_train_batch_size_per_gpu: 1
+  micro_forward_batch_size_per_gpu: 1
+  # Qwen 3.5 loads as a vision-language model, where SkyRL forbids sequence packing
+  # (smoke 2947369); with micro-batches of 1 there is nothing to pack anyway.
+  use_sample_packing: false
+  # flash-attn 2.8.3 crashes (illegal memory access) on Qwen 3.5's unpadded rows, which
+  # every batch has (its longest sequence); SDPA passes forward and backward
+  # (echo-fwd-check-2948510).
+  flash_attn: false
+  eval_batch_size: 32
+  eval_before_train: true
+  eval_interval: 10
+  ckpt_interval: 10
+  hf_save_interval: 10
+  resume_mode: latest
+  max_ckpts_to_keep: 2
+  ckpt_path: ${oc.env:OUTPUT_DIR}/ckpts
+  export_path: ${oc.env:OUTPUT_DIR}/exports
+  log_path: ${oc.env:OUTPUT_DIR}/skyrl_logs
+  logger: console
+  project_name: cs795-echo-pilot
+  run_name: ${oc.env:RUN_NAME,qwen35-2b-pilot}
+  log_example_interval: 10
+
+generator:
+  # Task containers run on the host behind cs795's analysis/phase0/sandbox_server.py,
+  # started by slurm/echo_train.sbatch; no container is started inside another.
+  environment_backend: tmax_remote
+  tmax_sandbox_url: ${oc.env:TMAX_SANDBOX_URL}
+  n_samples_per_prompt: 8
+  eval_n_samples_per_prompt: 1
+  step_wise_trajectories: false
+  parser_name: qwen35
+  command_selection: first
+  max_turns: 40
+  max_context_tokens: 22528
+  max_tokens_per_generation: 2048
+  max_terminal_output_chars: 8000
+  terminal_output_truncation: start
+  add_format_warn: true
+  world_loss_target: env_only
+  thinking_handling: keep_all
+  verifier_timeout: 120.0
+  max_total_tokens: 24576
+  agent_max_concurrency: 16
+  agent_timeout: 1800.0
+  dataset_num_workers: 4
+  dataset_max_rows: null
+  sampling_params:
+    max_generate_length: 2048
+    temperature: 0.8
+    stop: ["</tool_call>"]
+    logprobs: 0
+  eval_sampling_params:
+    max_generate_length: 2048
+    temperature: 0.6
+    stop: ["</tool_call>"]
+    logprobs: 0
+  inference_engine:
+    backend: vllm
+    run_engines_locally: true
+    num_engines: 1
+    weight_sync_backend: nccl
+    tensor_parallel_size: 1
+    async_engine: true
+    enforce_eager: false
+    enable_prefix_caching: true
+    enable_chunked_prefill: true
+    gpu_memory_utilization: 0.45
+    max_num_batched_tokens: 32768

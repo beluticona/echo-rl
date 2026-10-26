@@ -37,6 +37,9 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0, help="the Phase 0 sample seed")
     p.add_argument("--split-seed", type=int, default=0)
     p.add_argument("--out-dir", type=Path, required=True)
+    p.add_argument("--prefix", default=None, help="instruction prefix variant, e.g. qwen35_single (default: the parser's)")
+    p.add_argument("--train-list", default=None, help="task ids for train (overrides --start/--end/--val)")
+    p.add_argument("--val-list", default=None, help="task ids for val, with --train-list")
     args = p.parse_args()
 
     root = args.project_root.resolve()
@@ -44,12 +47,22 @@ def main() -> None:
     from analysis.phase0.sandbox import image_sif_path
     from analysis.phase0.tasks import load_index, load_instruction
 
-    entries = load_index(str(root / args.index), limit=args.end, seed=args.seed)[args.start : args.end]
     sif_dir = str(root / args.sif_dir)
-    usable = [e for e in entries if os.path.isfile(image_sif_path(e["image"], sif_dir))]
-    print(f"tasks [{args.start}, {args.end}): {len(entries)}, with a converted image: {len(usable)}")
-    random.Random(args.split_seed).shuffle(usable)
-    splits = {"val": usable[: args.val], "train": usable[args.val :]}
+    if args.train_list:
+        splits = {}
+        for split, lst in (("train", args.train_list), ("val", args.val_list)):
+            if not lst:
+                continue
+            entries = load_index(str(root / args.index), task_list=lst)
+            splits[split] = [e for e in entries if os.path.isfile(image_sif_path(e["image"], sif_dir))]
+            print(f"{split}: {len(entries)} listed, with a converted image: {len(splits[split])}")
+        random.Random(args.split_seed).shuffle(splits["train"])
+    else:
+        entries = load_index(str(root / args.index), limit=args.end, seed=args.seed)[args.start : args.end]
+        usable = [e for e in entries if os.path.isfile(image_sif_path(e["image"], sif_dir))]
+        print(f"tasks [{args.start}, {args.end}): {len(entries)}, with a converted image: {len(usable)}")
+        random.Random(args.split_seed).shuffle(usable)
+        splits = {"val": usable[: args.val], "train": usable[args.val :]}
 
     tokenizer = None
     if args.parser != "xml":
@@ -61,7 +74,7 @@ def main() -> None:
         rows = []
         for e in rows_in:
             prompt = format_task_prompt(load_instruction(e), args.parser, tokenizer,
-                                        add_instruction_prefix=args.parser != "xml")
+                                        add_instruction_prefix=args.parser != "xml", prefix_name=args.prefix)
             if isinstance(prompt, str):
                 prompt = [{"role": "user", "content": prompt}]
             rows.append({"prompt": prompt, "extra_info": {"task_dir": e["task_dir"], "image": e["image"],

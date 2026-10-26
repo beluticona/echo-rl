@@ -57,9 +57,27 @@ IMPORTANT:
 - The done tool can be included optionally at the end of the response if you determine that the task is complete. If included, it should be the last tool_call in the response. If not included, it is assumed to be false and the agent will continue with another turn.
 - You may use the bash tool to verify and validate that the task is complete before calling the done tool. Verify that commands were executed successfully and that the expected output is present before calling done. The done tool should ONLY be called once you are confident that the task is fully solved."""
 
+# The same instructions with the batch semantics corrected: the generator runs
+# only the first tool call of a response (command_selection: first), but the
+# qwen35 prefix says calls run "sequentially ... in the same batch". In the cs795
+# pilot the policy learned to pack ~10 calls into each turn and ran into the
+# context cap. Use with sampling stop ["</tool_call>"].
+QWEN35_SINGLE_INSTRUCTION_PREFIX = QWEN35_INSTRUCTION_PREFIX.replace(
+    """- Bash tool calls will be executed sequentially in the order they appear in the response.
+- Each command will be executed in the same shell environment, so you can rely on side effects (e.g. file creation) across commands in the same batch.""",
+    """- Each response must contain exactly one tool call. Only that one command is executed; you see its output in the next turn.
+- Commands run in the same shell environment across turns, so you can rely on side effects (e.g. file creation) from earlier turns.""",
+).replace(
+    """- The done tool can be included optionally at the end of the response if you determine that the task is complete. If included, it should be the last tool_call in the response. If not included, it is assumed to be false and the agent will continue with another turn.""",
+    """- When the task is complete, call the done tool as the only tool call of a response. Until you do, the agent continues with another turn.""",
+)
+assert QWEN35_SINGLE_INSTRUCTION_PREFIX.count("exactly one tool call") == 1
+assert "only tool call of a response" in QWEN35_SINGLE_INSTRUCTION_PREFIX
+
 _INSTRUCTION_PREFIX_REGISTRY = {
     "hermes": HF_HERMES_INSTRUCTION_PREFIX,
     "qwen35": QWEN35_INSTRUCTION_PREFIX,
+    "qwen35_single": QWEN35_SINGLE_INSTRUCTION_PREFIX,
 }
 
 
@@ -74,6 +92,7 @@ def format_task_prompt(
     parser_name: str = "xml",
     tokenizer: Any = None,
     add_instruction_prefix: bool = False,
+    prefix_name: str | None = None,
 ) -> str | list[dict]:
     if parser_name in ["hermes", "qwen35"]:
         from .tools import get_augmented_system_content
@@ -82,7 +101,7 @@ def format_task_prompt(
             raise ValueError("tokenizer is required for hermes or qwen35 parser")
         user_content = instruction
         if add_instruction_prefix:
-            user_content = _INSTRUCTION_PREFIX_REGISTRY.get(parser_name, "") + "\n\nTask: " + user_content
+            user_content = _INSTRUCTION_PREFIX_REGISTRY.get(prefix_name or parser_name, "") + "\n\nTask: " + user_content
         return [{"role": "system", "content": get_augmented_system_content(tokenizer, parser_name)}, {"role": "user", "content": user_content}]
 
     return get_system_prompt(parser_name) + "\n\nTask:\n" + instruction
