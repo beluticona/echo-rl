@@ -229,6 +229,34 @@ class EchoPPOTrainer(RayPPOTrainer):
             }
         )
 
+    def fwd_logprobs_values_reward(self, training_input: TrainingInputBatch):
+        # SkyRL logs only the mean and std of the sampler-trainer gap. The tail and the
+        # per-sequence drift say more about whether the mismatch is growing (2026-10-27
+        # collapse review), so log them too.
+        training_input = super().fwd_logprobs_values_reward(training_input)
+        rollout = training_input.get("rollout_logprobs", None)
+        if rollout is not None:
+            mask = training_input["loss_mask"] > 0
+            diff = (training_input["action_log_probs"] - rollout).float() * mask
+            tok = diff[mask].abs()
+            if tok.numel() > 1 << 24:
+                tok = tok[torch.randperm(tok.numel())[: 1 << 24]]
+            # signed mean log-ratio per sequence: what the geometric sequence mask thresholds
+            seq = (diff.sum(-1) / mask.sum(-1).clamp(min=1)).abs()
+            q = torch.tensor([0.5, 0.95, 0.99])
+            tq, sq = torch.quantile(tok, q), torch.quantile(seq, q)
+            self.all_metrics.update(
+                {
+                    "policy/gap_tok_p95": tq[1].item(),
+                    "policy/gap_tok_p99": tq[2].item(),
+                    "policy/gap_tok_max": tok.max().item(),
+                    "policy/gap_seq_geo_abs_p50": sq[0].item(),
+                    "policy/gap_seq_geo_abs_p95": sq[1].item(),
+                    "policy/gap_seq_geo_abs_max": seq.max().item(),
+                }
+            )
+        return training_input
+
     def train_critic_and_policy(self, data: TrainingInputBatch):
         data.metadata["world_model_schedule_step"] = max(self.global_step - 1, 0)
         data.metadata["total_training_steps"] = self.total_training_steps or 0

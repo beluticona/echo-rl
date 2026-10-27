@@ -90,6 +90,12 @@ trainer:
       token_tis_ratio_clip_high: 2.0
       outlier_token_is_threshold_low: 1.0e-4
       outlier_token_is_threshold_high: 100.0
+      # geometric mean of the per-token ratios in an episode outside [0.99, 1.01]
+      # (SkyRL's recommended range): masks episodes where trainer and sampler disagree
+      # systematically, without the variance of a product over ~3k tokens
+      sequence_mask_metric: geometric
+      geo_mask_low: 0.99
+      geo_mask_high: 1.01
   epochs: 1
   update_epochs_per_batch: 1
   max_prompt_length: 3072
