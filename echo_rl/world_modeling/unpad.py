@@ -30,12 +30,19 @@ def _unpadded_forward(self, sequences, num_actions, attention_mask=None, *args, 
     if lead == 0:
         return _forward(self, sequences, num_actions, attention_mask, *args, **kwargs)
     result = _forward(self, sequences[:, lead:], num_actions, attention_mask[:, lead:], *args, **kwargs)
-    if isinstance(result, tuple):
-        log_probs, output = result
-        if isinstance(output.get("entropy") if hasattr(output, "get") else None, torch.Tensor):
-            output["entropy"] = F.pad(output["entropy"], (lead, 0))
-        return log_probs, output
-    return result
+    log_probs, output = result if isinstance(result, tuple) else (result, None)
+    # Response-level tensors are num_actions wide (the longest response in the whole
+    # batch). A short row trimmed of its padding yields fewer columns (2987770 failed
+    # on 5548 vs 8670); the missing leading columns are padding or prompt, which the
+    # loss mask excludes, so fill them with zeros.
+    width = int(max(num_actions)) if not isinstance(num_actions, int) else num_actions
+    if log_probs.shape[-1] < width:
+        log_probs = F.pad(log_probs, (width - log_probs.shape[-1], 0))
+    if output is None:
+        return log_probs
+    if isinstance(output.get("entropy") if hasattr(output, "get") else None, torch.Tensor):
+        output["entropy"] = F.pad(output["entropy"], (lead, 0))
+    return log_probs, output
 
 
 if not getattr(HFModelWrapper.forward, "_echo_unpadded", False):
