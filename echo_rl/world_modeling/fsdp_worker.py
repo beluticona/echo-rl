@@ -10,6 +10,7 @@ from skyrl.backends.skyrl_train.training_batch import TrainingInputBatch
 from skyrl.backends.skyrl_train.workers.fsdp.fsdp_worker import FSDPPolicyWorkerBase
 from skyrl.train.dataset.replay_buffer import Experience
 
+import echo_rl.world_modeling.unpad  # noqa: F401  (drops left padding before the Qwen3.5 forward)
 from echo_rl.world_modeling.loss import compute_world_model_loss, get_scheduled_coeff
 
 
